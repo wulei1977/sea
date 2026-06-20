@@ -13,6 +13,7 @@ public partial class ImageViewerWindow : Window
     private const double MaxZoom = 20.0;
 
     private readonly IReadOnlyList<string> _imagePaths;
+    private readonly AnimatedImagePlayer _imageAnimationPlayer;
     private CancellationTokenSource? _loadCts;
     private int _index;
     private double _zoom = 1.0;
@@ -31,10 +32,18 @@ public partial class ImageViewerWindow : Window
     {
         InitializeComponent();
 
+        _imageAnimationPlayer = new AnimatedImagePlayer(MainImage);
         _imagePaths = imagePaths;
         _index = Math.Clamp(selectedIndex, 0, Math.Max(0, imagePaths.Count - 1));
         UpdateZoomModeButtons();
         UpdateFullScreenMenuText();
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _loadCts?.Cancel();
+        _imageAnimationPlayer.Stop();
+        base.OnClosed(e);
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -51,6 +60,7 @@ public partial class ImageViewerWindow : Window
         }
 
         _loadCts?.Cancel();
+        _imageAnimationPlayer.Stop();
         var cts = new CancellationTokenSource();
         _loadCts = cts;
 
@@ -62,15 +72,19 @@ public partial class ImageViewerWindow : Window
 
         try
         {
-            var image = await Task.Run(() => ImageLoader.LoadBitmap(path), cts.Token);
+            var image = await Task.Run(() => ImageLoader.LoadDisplayImage(path), cts.Token);
             cts.Token.ThrowIfCancellationRequested();
-            var (imageWidth, imageHeight) = ImageLoader.GetImageSize(image);
 
-            MainImage.Source = image;
-            MainImage.Width = imageWidth;
-            MainImage.Height = imageHeight;
+            MainImage.Source = image.Source;
+            MainImage.Width = image.Width;
+            MainImage.Height = image.Height;
             MainImage.Visibility = Visibility.Visible;
             EmptyText.Visibility = Visibility.Collapsed;
+
+            if (image.Animation is not null)
+            {
+                _imageAnimationPlayer.Start(image.Animation);
+            }
 
             Title = $"{Path.GetFileName(path)} - 查看图片";
             ApplyZoomMode();
@@ -81,6 +95,7 @@ public partial class ImageViewerWindow : Window
         }
         catch (Exception ex) when (ImageLoader.IsRecoverableImageError(ex))
         {
+            _imageAnimationPlayer.Stop();
             MainImage.Source = null;
             MainImage.Visibility = Visibility.Collapsed;
             EmptyText.Text = $"无法打开图片：{ex.Message}";

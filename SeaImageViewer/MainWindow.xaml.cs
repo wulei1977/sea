@@ -20,6 +20,7 @@ public partial class MainWindow : Window
     private const string FolderPlaceholder = "Loading";
 
     private readonly ObservableCollection<ImageFileItem> _images = [];
+    private readonly AnimatedImagePlayer _previewAnimationPlayer;
     private ICollectionView? _imageView;
     private CancellationTokenSource? _folderLoadCts;
     private CancellationTokenSource? _previewLoadCts;
@@ -35,10 +36,19 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
+        _previewAnimationPlayer = new AnimatedImagePlayer(PreviewImage);
         ThumbnailList.ItemsSource = _images;
         _imageView = CollectionViewSource.GetDefaultView(_images);
         _imageView.Filter = FilterImage;
         UpdatePreviewZoomButtons();
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _folderLoadCts?.Cancel();
+        _previewLoadCts?.Cancel();
+        _previewAnimationPlayer.Stop();
+        base.OnClosed(e);
     }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -475,6 +485,7 @@ public partial class MainWindow : Window
     private async Task LoadPreviewAsync(ImageFileItem item)
     {
         _previewLoadCts?.Cancel();
+        _previewAnimationPlayer.Stop();
         var cts = new CancellationTokenSource();
         _previewLoadCts = cts;
 
@@ -483,15 +494,19 @@ public partial class MainWindow : Window
             SelectedImageText.Text = item.FileName;
             StatusText.Text = $"正在打开 {item.FileName}...";
 
-            var image = await Task.Run(() => ImageLoader.LoadBitmap(item.FilePath), cts.Token);
+            var image = await Task.Run(() => ImageLoader.LoadDisplayImage(item.FilePath), cts.Token);
             cts.Token.ThrowIfCancellationRequested();
-            var (imageWidth, imageHeight) = ImageLoader.GetImageSize(image);
 
-            PreviewImage.Source = image;
-            PreviewImage.Width = imageWidth;
-            PreviewImage.Height = imageHeight;
+            PreviewImage.Source = image.Source;
+            PreviewImage.Width = image.Width;
+            PreviewImage.Height = image.Height;
             PreviewImage.Visibility = Visibility.Visible;
             EmptyPreviewText.Visibility = Visibility.Collapsed;
+
+            if (image.Animation is not null)
+            {
+                _previewAnimationPlayer.Start(image.Animation);
+            }
 
             ApplyPreviewZoomMode();
             StatusText.Text = $"{item.FileName}  {item.PixelWidth} x {item.PixelHeight}  {ImageLoader.FormatFileSize(item.FileSize)}";
@@ -509,6 +524,7 @@ public partial class MainWindow : Window
 
     private void ClearPreview()
     {
+        _previewAnimationPlayer.Stop();
         PreviewImage.Source = null;
         PreviewImage.Width = double.NaN;
         PreviewImage.Height = double.NaN;

@@ -4,11 +4,16 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using SharpVectors.Converters;
 using SharpVectors.Renderers.Wpf;
+using Drawing = System.Drawing;
+using DrawingImaging = System.Drawing.Imaging;
 
 namespace SeaImageViewer;
 
 public static class ImageLoader
 {
+    private const int GifFrameDelayPropertyId = 0x5100;
+    private static readonly TimeSpan DefaultGifFrameDelay = TimeSpan.FromMilliseconds(100);
+
     private static readonly HashSet<string> SupportedExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".jpg",
@@ -58,6 +63,19 @@ public static class ImageLoader
             : LoadBitmapImage(path, decodePixelWidth);
     }
 
+    public static LoadedImage LoadDisplayImage(string path)
+    {
+        var animation = LoadAnimatedGif(path);
+        if (animation is not null)
+        {
+            return new LoadedImage(animation.Frames[0], animation.Width, animation.Height, animation);
+        }
+
+        var image = LoadBitmap(path);
+        var (width, height) = GetImageSize(image);
+        return new LoadedImage(image, width, height, null);
+    }
+
     public static (int Width, int Height) GetImageSize(ImageSource image)
     {
         if (image is BitmapSource bitmap)
@@ -79,7 +97,7 @@ public static class ImageLoader
             or FileFormatException
             or InvalidOperationException
             or ArgumentException
-            or COMException
+            or ExternalException
             or System.Xml.XmlException;
     }
 
@@ -147,6 +165,126 @@ public static class ImageLoader
             || format == PixelFormats.Bgra32
             || format == PixelFormats.Pbgra32
             || format == PixelFormats.Gray8;
+    }
+
+    private static AnimatedImage? LoadAnimatedGif(string path)
+    {
+        if (!IsGifFile(path))
+        {
+            return null;
+        }
+
+        using var image = Drawing.Image.FromFile(path);
+        var frameDimension = new DrawingImaging.FrameDimension(image.FrameDimensionsList[0]);
+        var frameCount = image.GetFrameCount(frameDimension);
+        if (frameCount <= 1)
+        {
+            return null;
+        }
+
+        var delays = ReadGifFrameDelays(image, frameCount);
+        var frames = new List<BitmapSource>(frameCount);
+
+        for (var frameIndex = 0; frameIndex < frameCount; frameIndex++)
+        {
+            image.SelectActiveFrame(frameDimension, frameIndex);
+            frames.Add(CreateGifFrameBitmap(image));
+        }
+
+        return new AnimatedImage(frames, delays, image.Width, image.Height);
+    }
+
+    private static IReadOnlyList<TimeSpan> ReadGifFrameDelays(Drawing.Image image, int frameCount)
+    {
+        var delays = Enumerable.Repeat(DefaultGifFrameDelay, frameCount).ToArray();
+        if (!image.PropertyIdList.Contains(GifFrameDelayPropertyId))
+        {
+            return delays;
+        }
+
+        try
+        {
+            if (image.GetPropertyItem(GifFrameDelayPropertyId)?.Value is not byte[] delayValues)
+            {
+                return delays;
+            }
+
+            for (var frameIndex = 0; frameIndex < frameCount; frameIndex++)
+            {
+                var offset = frameIndex * sizeof(int);
+                if (offset + sizeof(int) > delayValues.Length)
+                {
+                    break;
+                }
+
+                var hundredths = BitConverter.ToInt32(delayValues, offset);
+                delays[frameIndex] = NormalizeGifFrameDelay(hundredths);
+            }
+        }
+        catch (ArgumentException)
+        {
+            return delays;
+        }
+
+        return delays;
+    }
+
+    private static TimeSpan NormalizeGifFrameDelay(int hundredths)
+    {
+        if (hundredths <= 0)
+        {
+            return DefaultGifFrameDelay;
+        }
+
+        return TimeSpan.FromMilliseconds(Math.Max(20, hundredths * 10));
+    }
+
+    private static BitmapSource CreateGifFrameBitmap(Drawing.Image image)
+    {
+        using var bitmap = new Drawing.Bitmap(image.Width, image.Height, DrawingImaging.PixelFormat.Format32bppPArgb);
+        bitmap.SetResolution(96, 96);
+
+        using (var graphics = Drawing.Graphics.FromImage(bitmap))
+        {
+            graphics.Clear(Drawing.Color.Transparent);
+            graphics.DrawImage(image, new Drawing.Rectangle(0, 0, image.Width, image.Height));
+        }
+
+        return ConvertDrawingBitmapToBitmapSource(bitmap);
+    }
+
+    private static BitmapSource ConvertDrawingBitmapToBitmapSource(Drawing.Bitmap bitmap)
+    {
+        var rect = new Drawing.Rectangle(0, 0, bitmap.Width, bitmap.Height);
+        var data = bitmap.LockBits(rect, DrawingImaging.ImageLockMode.ReadOnly, DrawingImaging.PixelFormat.Format32bppPArgb);
+
+        try
+        {
+            var stride = Math.Abs(data.Stride);
+            var pixels = new byte[stride * bitmap.Height];
+
+            for (var row = 0; row < bitmap.Height; row++)
+            {
+                var source = IntPtr.Add(data.Scan0, row * data.Stride);
+                Marshal.Copy(source, pixels, row * stride, stride);
+            }
+
+            var sourceBitmap = BitmapSource.Create(
+                bitmap.Width,
+                bitmap.Height,
+                96,
+                96,
+                PixelFormats.Pbgra32,
+                null,
+                pixels,
+                stride);
+            sourceBitmap.Freeze();
+            return sourceBitmap;
+        }
+        finally
+        {
+            bitmap.UnlockBits(data);
+        }
     }
 
     private static DrawingImage LoadSvgImage(string path)
@@ -229,6 +367,11 @@ public static class ImageLoader
         var extension = Path.GetExtension(path);
         return extension.Equals(".ico", StringComparison.OrdinalIgnoreCase)
             || extension.Equals(".cur", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsGifFile(string path)
+    {
+        return Path.GetExtension(path).Equals(".gif", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsSvgFile(string path)
