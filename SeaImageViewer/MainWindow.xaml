@@ -247,9 +247,9 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="240" MinWidth="170" />
                 <ColumnDefinition Width="6" />
-                <ColumnDefinition Width="360" MinWidth="240" />
+                <ColumnDefinition Width="*" MinWidth="240" />
                 <ColumnDefinition Width="6" />
-                <ColumnDefinition Width="*" MinWidth="260" />
+                <ColumnDefinition Width="400" MinWidth="260" />
             </Grid.ColumnDefinitions>
 
             <Border Grid.Column="0"
