@@ -331,6 +331,14 @@ public partial class ImageViewerWindow : Window
             return;
         }
 
+        if (e.ClickCount == 2)
+        {
+            StopPan();
+            ToggleFullScreen();
+            e.Handled = true;
+            return;
+        }
+
         _isPanning = true;
         _panStart = e.GetPosition(ImageScroller);
         _panOrigin = new Point(ImageScroller.HorizontalOffset, ImageScroller.VerticalOffset);
