@@ -2,6 +2,16 @@
 
 Sea Image Viewer 是一个使用 C# 和 WPF 开发的本地看图软件，功能参考 ACDSee 的基础浏览体验：目录浏览、缩略图列表、图片查看窗口、缩放和平移。
 
+## 界面截图
+
+### 主窗口
+
+![Sea Image Viewer 主窗口](SeaImageViewer/5f4e0100-c256-48ed-abfb-1d28973e980d.png)
+
+### 查看窗口
+
+![Sea Image Viewer 查看窗口](SeaImageViewer/3863cc20-d3a9-403b-9317-02d54879a7cf.png)
+
 ## 功能
 
 - 浏览磁盘目录并列出当前目录中的图片文件

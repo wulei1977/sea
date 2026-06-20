@@ -2,6 +2,16 @@
 
 Sea Image Viewer is a local image viewer built with C# and WPF. It provides a lightweight ACDSee-style browsing workflow with folder navigation, thumbnail loading, image preview, zooming, panning, and a dedicated viewer window.
 
+## Screenshots
+
+### Main Window
+
+![Sea Image Viewer main window](SeaImageViewer/5f4e0100-c256-48ed-abfb-1d28973e980d.png)
+
+### Viewer Window
+
+![Sea Image Viewer viewer window](SeaImageViewer/3863cc20-d3a9-403b-9317-02d54879a7cf.png)
+
 ## Features
 
 - Browse folders and list image files in the selected directory
