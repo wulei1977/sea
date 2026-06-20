@@ -386,7 +386,7 @@
                             <Grid MinWidth="{Binding ElementName=PreviewScroller, Path=ViewportWidth}"
                                   MinHeight="{Binding ElementName=PreviewScroller, Path=ViewportHeight}">
                                 <Image x:Name="PreviewImage"
-                                       Stretch="None"
+                                       Stretch="Fill"
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center">
                                     <Image.LayoutTransform>

@@ -162,7 +162,7 @@
                 <Grid MinWidth="{Binding ElementName=ImageScroller, Path=ViewportWidth}"
                       MinHeight="{Binding ElementName=ImageScroller, Path=ViewportHeight}">
                     <Image x:Name="MainImage"
-                           Stretch="None"
+                           Stretch="Fill"
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center">
                         <Image.LayoutTransform>

@@ -83,13 +83,13 @@ public static class ImageLoader
             or System.Xml.XmlException;
     }
 
-    private static BitmapImage LoadBitmapImage(string path, int? decodePixelWidth)
+    private static BitmapSource LoadBitmapImage(string path, int? decodePixelWidth)
     {
         using var stream = File.OpenRead(path);
         var bitmap = new BitmapImage();
         bitmap.BeginInit();
         bitmap.CacheOption = BitmapCacheOption.OnLoad;
-        bitmap.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
+        bitmap.CreateOptions = BitmapCreateOptions.None;
         bitmap.StreamSource = stream;
 
         if (decodePixelWidth is > 0)
@@ -100,7 +100,7 @@ public static class ImageLoader
         bitmap.EndInit();
         bitmap.Freeze();
 
-        return bitmap;
+        return NormalizeBitmapForDisplay(bitmap);
     }
 
     private static BitmapSource LoadIconBitmap(string path, int? decodePixelWidth)
@@ -119,8 +119,34 @@ public static class ImageLoader
             source = new TransformedBitmap(source, new ScaleTransform(scale, scale));
         }
 
-        source.Freeze();
-        return source;
+        return NormalizeBitmapForDisplay(source);
+    }
+
+    private static BitmapSource NormalizeBitmapForDisplay(BitmapSource source)
+    {
+        if (IsDisplayFriendlyFormat(source.Format))
+        {
+            if (source.CanFreeze && !source.IsFrozen)
+            {
+                source.Freeze();
+            }
+
+            return source;
+        }
+
+        var converted = new FormatConvertedBitmap(source, PixelFormats.Pbgra32, null, 0);
+        converted.Freeze();
+        return converted;
+    }
+
+    private static bool IsDisplayFriendlyFormat(PixelFormat format)
+    {
+        return format == PixelFormats.Bgr24
+            || format == PixelFormats.Rgb24
+            || format == PixelFormats.Bgr32
+            || format == PixelFormats.Bgra32
+            || format == PixelFormats.Pbgra32
+            || format == PixelFormats.Gray8;
     }
 
     private static DrawingImage LoadSvgImage(string path)

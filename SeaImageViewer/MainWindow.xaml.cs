@@ -29,6 +29,7 @@ public partial class MainWindow : Window
     private bool _isPanning;
     private Point _panStart;
     private Point _panOrigin;
+    private bool _isSyncingFolderTreeSelection;
 
     public MainWindow()
     {
@@ -47,7 +48,7 @@ public partial class MainWindow : Window
         var pictures = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
         if (Directory.Exists(pictures))
         {
-            LoadFolder(pictures);
+            LoadFolder(pictures, syncFolderTree: true);
         }
     }
 
@@ -81,6 +82,16 @@ public partial class MainWindow : Window
     private static void FolderTreeItem_Expanded(object sender, RoutedEventArgs e)
     {
         if (sender is not TreeViewItem item || item.Tag is not string path)
+        {
+            return;
+        }
+
+        LoadFolderTreeChildren(item);
+    }
+
+    private static void LoadFolderTreeChildren(TreeViewItem item)
+    {
+        if (item.Tag is not string path)
         {
             return;
         }
@@ -132,8 +143,104 @@ public partial class MainWindow : Window
         return Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
     }
 
+    private void SyncFolderTreeSelection(string folder)
+    {
+        var targetPath = NormalizeFolderPath(folder);
+
+        foreach (var rootItem in FolderTree.Items.OfType<TreeViewItem>())
+        {
+            if (rootItem.Tag is not string rootPath)
+            {
+                continue;
+            }
+
+            if (IsSameOrAncestorFolder(NormalizeFolderPath(rootPath), targetPath)
+                && TrySelectFolderTreeItem(rootItem, targetPath))
+            {
+                return;
+            }
+        }
+    }
+
+    private bool TrySelectFolderTreeItem(TreeViewItem item, string targetPath)
+    {
+        if (item.Tag is not string itemPath)
+        {
+            return false;
+        }
+
+        var normalizedItemPath = NormalizeFolderPath(itemPath);
+        if (string.Equals(normalizedItemPath, targetPath, StringComparison.OrdinalIgnoreCase))
+        {
+            _isSyncingFolderTreeSelection = true;
+            try
+            {
+                item.IsSelected = true;
+                item.BringIntoView();
+            }
+            finally
+            {
+                _isSyncingFolderTreeSelection = false;
+            }
+
+            return true;
+        }
+
+        if (!IsSameOrAncestorFolder(normalizedItemPath, targetPath))
+        {
+            return false;
+        }
+
+        item.IsExpanded = true;
+        LoadFolderTreeChildren(item);
+
+        foreach (var childItem in item.Items.OfType<TreeViewItem>())
+        {
+            if (childItem.Tag is string childPath
+                && IsSameOrAncestorFolder(NormalizeFolderPath(childPath), targetPath)
+                && TrySelectFolderTreeItem(childItem, targetPath))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string NormalizeFolderPath(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var root = Path.GetPathRoot(fullPath);
+
+        if (string.Equals(root, fullPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return fullPath;
+        }
+
+        return fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
+    private static bool IsSameOrAncestorFolder(string ancestorPath, string targetPath)
+    {
+        if (string.Equals(ancestorPath, targetPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var ancestorWithSeparator = ancestorPath.EndsWith(Path.DirectorySeparatorChar)
+            ? ancestorPath
+            : ancestorPath + Path.DirectorySeparatorChar;
+
+        return targetPath.StartsWith(ancestorWithSeparator, StringComparison.OrdinalIgnoreCase);
+    }
+
     private void FolderTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
+        if (_isSyncingFolderTreeSelection)
+        {
+            return;
+        }
+
         if (e.NewValue is TreeViewItem { Tag: string path } && Directory.Exists(path))
         {
             LoadFolder(path);
@@ -154,7 +261,7 @@ public partial class MainWindow : Window
 
         if (dialog.ShowDialog() == WinForms.DialogResult.OK)
         {
-            LoadFolder(dialog.SelectedPath);
+            LoadFolder(dialog.SelectedPath, syncFolderTree: true);
         }
     }
 
@@ -166,7 +273,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void LoadFolder(string folder)
+    private async void LoadFolder(string folder, bool syncFolderTree = false)
     {
         _folderLoadCts?.Cancel();
         _previewLoadCts?.Cancel();
@@ -176,6 +283,11 @@ public partial class MainWindow : Window
         var token = cts.Token;
 
         _currentFolder = folder;
+        if (syncFolderTree)
+        {
+            SyncFolderTreeSelection(folder);
+        }
+
         _images.Clear();
         SearchTextBox.Clear();
         _imageView?.Refresh();
