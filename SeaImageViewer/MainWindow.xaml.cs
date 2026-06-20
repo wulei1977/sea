@@ -33,6 +33,9 @@ public partial class MainWindow : Window
     private Point _panOrigin;
     private bool _isSyncingFolderTreeSelection;
     private bool _isUpdatingLanguageSelection;
+    private string? _statusKey = "Main.Ready";
+    private object[] _statusArgs = [];
+    private string? _statusLiteral;
 
     private static LocalizationManager Texts => LocalizationManager.Instance;
     private static AppConfiguration Config => AppConfiguration.Instance;
@@ -45,6 +48,7 @@ public partial class MainWindow : Window
         _previewZoomMode = Config.PreviewZoomMode;
         Texts.LanguageChanged += Localization_LanguageChanged;
         InitializeLanguageSelector();
+        RenderStatus();
         ThumbnailList.ItemsSource = _images;
         _imageView = CollectionViewSource.GetDefaultView(_images);
         _imageView.Filter = FilterImage;
@@ -82,6 +86,31 @@ public partial class MainWindow : Window
         {
             SelectedImageText.Text = Texts["Main.Preview"];
         }
+
+        RenderStatus();
+    }
+
+    private void SetStatus(string key, params object[] args)
+    {
+        _statusKey = key;
+        _statusArgs = args;
+        _statusLiteral = null;
+        RenderStatus();
+    }
+
+    private void SetStatusLiteral(string text)
+    {
+        _statusKey = null;
+        _statusArgs = [];
+        _statusLiteral = text;
+        RenderStatus();
+    }
+
+    private void RenderStatus()
+    {
+        StatusText.Text = _statusKey is null
+            ? _statusLiteral ?? string.Empty
+            : Texts.Format(_statusKey, _statusArgs);
     }
 
     private void LanguageComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -396,7 +425,7 @@ public partial class MainWindow : Window
 
         CurrentFolderText.Text = folder;
         ImageCountText.Text = string.Empty;
-        StatusText.Text = Texts["Main.ScanningImages"];
+        SetStatus("Main.ScanningImages");
 
         try
         {
@@ -413,16 +442,21 @@ public partial class MainWindow : Window
 
             if (files.Count == 0)
             {
-                StatusText.Text = Texts["Main.NoRecognizedImages"];
+                SetStatus("Main.NoRecognizedImages");
                 ImageCountText.Text = "0";
                 return;
             }
 
             var failed = await LoadThumbnailsAsync(files, token);
 
-            StatusText.Text = failed == 0
-                ? Texts.Format("Main.CompleteImages", _images.Count)
-                : Texts.Format("Main.CompleteImagesWithSkipped", _images.Count, failed);
+            if (failed == 0)
+            {
+                SetStatus("Main.CompleteImages", _images.Count);
+            }
+            else
+            {
+                SetStatus("Main.CompleteImagesWithSkipped", _images.Count, failed);
+            }
             UpdateImageCount();
         }
         catch (OperationCanceledException)
@@ -431,7 +465,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
-            StatusText.Text = Texts.Format("Main.CannotReadFolder", ex.Message);
+            SetStatus("Main.CannotReadFolder", ex.Message);
             ImageCountText.Text = "0";
         }
     }
@@ -490,9 +524,14 @@ public partial class MainWindow : Window
             if (completed % 10 == 0 || completed == files.Count)
             {
                 UpdateImageCount();
-                StatusText.Text = failed == 0
-                    ? Texts.Format("Main.LoadedProgress", completed, files.Count)
-                    : Texts.Format("Main.LoadedProgressWithSkipped", completed, files.Count, failed);
+                if (failed == 0)
+                {
+                    SetStatus("Main.LoadedProgress", completed, files.Count);
+                }
+                else
+                {
+                    SetStatus("Main.LoadedProgressWithSkipped", completed, files.Count, failed);
+                }
             }
         }
 
@@ -583,7 +622,7 @@ public partial class MainWindow : Window
         try
         {
             SelectedImageText.Text = item.FileName;
-            StatusText.Text = Texts.Format("Main.OpeningFile", item.FileName);
+            SetStatus("Main.OpeningFile", item.FileName);
 
             var image = await Task.Run(() => ImageLoader.LoadDisplayImage(item.FilePath), cts.Token);
             cts.Token.ThrowIfCancellationRequested();
@@ -600,7 +639,7 @@ public partial class MainWindow : Window
             }
 
             ApplyPreviewZoomMode();
-            StatusText.Text = $"{item.FileName}  {item.PixelWidth} x {item.PixelHeight}  {ImageLoader.FormatFileSize(item.FileSize)}";
+            SetStatusLiteral($"{item.FileName}  {item.PixelWidth} x {item.PixelHeight}  {ImageLoader.FormatFileSize(item.FileSize)}");
         }
         catch (OperationCanceledException)
         {
@@ -609,7 +648,7 @@ public partial class MainWindow : Window
         {
             ClearPreview();
             SelectedImageText.Text = item.FileName;
-            StatusText.Text = Texts.Format("Main.CannotOpenImage", ex.Message);
+            SetStatus("Main.CannotOpenImage", ex.Message);
         }
     }
 
