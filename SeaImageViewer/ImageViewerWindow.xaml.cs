@@ -29,12 +29,14 @@ public partial class ImageViewerWindow : Window
     private Visibility _windowedToolbarVisibility;
 
     private static LocalizationManager Texts => LocalizationManager.Instance;
+    private static AppConfiguration Config => AppConfiguration.Instance;
 
     public ImageViewerWindow(IReadOnlyList<string> imagePaths, int selectedIndex)
     {
         InitializeComponent();
 
         _imageAnimationPlayer = new AnimatedImagePlayer(MainImage);
+        _zoomMode = Config.ViewerZoomMode;
         _imagePaths = imagePaths;
         _index = Math.Clamp(selectedIndex, 0, Math.Max(0, imagePaths.Count - 1));
         Texts.LanguageChanged += Localization_LanguageChanged;
@@ -217,6 +219,8 @@ public partial class ImageViewerWindow : Window
     private void ZoomOut_Click(object sender, RoutedEventArgs e)
     {
         _zoomMode = ZoomMode.Custom;
+        Config.ViewerZoomMode = _zoomMode;
+        UpdateImageScrollBars();
         UpdateZoomModeButtons();
         ZoomAt(1 / 1.15, new Point(ImageScroller.ViewportWidth / 2, ImageScroller.ViewportHeight / 2));
     }
@@ -224,6 +228,8 @@ public partial class ImageViewerWindow : Window
     private void ZoomIn_Click(object sender, RoutedEventArgs e)
     {
         _zoomMode = ZoomMode.Custom;
+        Config.ViewerZoomMode = _zoomMode;
+        UpdateImageScrollBars();
         UpdateZoomModeButtons();
         ZoomAt(1.15, new Point(ImageScroller.ViewportWidth / 2, ImageScroller.ViewportHeight / 2));
     }
@@ -339,6 +345,8 @@ public partial class ImageViewerWindow : Window
         }
 
         _zoomMode = ZoomMode.Custom;
+        Config.ViewerZoomMode = _zoomMode;
+        UpdateImageScrollBars();
         UpdateZoomModeButtons();
         var factor = e.Delta > 0 ? 1.15 : 1 / 1.15;
         ZoomAt(factor, e.GetPosition(ImageScroller));
@@ -449,12 +457,14 @@ public partial class ImageViewerWindow : Window
     private void SetZoomMode(ZoomMode mode)
     {
         _zoomMode = mode;
+        Config.ViewerZoomMode = mode;
         UpdateZoomModeButtons();
         ApplyZoomMode();
     }
 
     private void ApplyZoomMode()
     {
+        UpdateImageScrollBars();
         UpdateZoomModeButtons();
 
         if (MainImage.Source is null)
@@ -482,6 +492,16 @@ public partial class ImageViewerWindow : Window
     {
         SetZoomModeButtonVisual(FitViewerButton, _zoomMode == ZoomMode.Fit);
         SetZoomModeButtonVisual(ActualSizeViewerButton, _zoomMode == ZoomMode.ActualSize);
+    }
+
+    private void UpdateImageScrollBars()
+    {
+        var visibility = _zoomMode == ZoomMode.Fit
+            ? System.Windows.Controls.ScrollBarVisibility.Disabled
+            : System.Windows.Controls.ScrollBarVisibility.Auto;
+
+        ImageScroller.HorizontalScrollBarVisibility = visibility;
+        ImageScroller.VerticalScrollBarVisibility = visibility;
     }
 
     private static void SetZoomModeButtonVisual(System.Windows.Controls.Button button, bool isActive)

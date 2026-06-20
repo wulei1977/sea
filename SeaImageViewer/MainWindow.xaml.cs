@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -34,12 +35,14 @@ public partial class MainWindow : Window
     private bool _isUpdatingLanguageSelection;
 
     private static LocalizationManager Texts => LocalizationManager.Instance;
+    private static AppConfiguration Config => AppConfiguration.Instance;
 
     public MainWindow()
     {
         InitializeComponent();
 
         _previewAnimationPlayer = new AnimatedImagePlayer(PreviewImage);
+        _previewZoomMode = Config.PreviewZoomMode;
         Texts.LanguageChanged += Localization_LanguageChanged;
         InitializeLanguageSelector();
         ThumbnailList.ItemsSource = _images;
@@ -53,6 +56,7 @@ public partial class MainWindow : Window
         _folderLoadCts?.Cancel();
         _previewLoadCts?.Cancel();
         _previewAnimationPlayer.Stop();
+        SaveMainLayoutToConfig();
         Texts.LanguageChanged -= Localization_LanguageChanged;
         base.OnClosed(e);
     }
@@ -92,13 +96,60 @@ public partial class MainWindow : Window
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        ApplyMainLayoutFromConfig();
         LoadDriveTree();
 
-        var pictures = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
-        if (Directory.Exists(pictures))
+        var configuredFolder = Config.DefaultOpenFolder;
+        var initialFolder = Directory.Exists(configuredFolder)
+            ? configuredFolder
+            : Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+
+        if (Directory.Exists(initialFolder))
         {
-            LoadFolder(pictures, syncFolderTree: true);
+            LoadFolder(initialFolder, syncFolderTree: true);
         }
+    }
+
+    private void ApplyMainLayoutFromConfig()
+    {
+        var folderWidth = Config.MainLayoutFolderWidth;
+        var previewWidth = Config.MainLayoutPreviewWidth;
+
+        ThumbnailsColumn.Width = new GridLength(1, GridUnitType.Star);
+
+        if (folderWidth is > 0)
+        {
+            FolderColumn.Width = new GridLength(Math.Max(FolderColumn.MinWidth, folderWidth.Value));
+        }
+
+        if (previewWidth is > 0)
+        {
+            PreviewColumn.Width = new GridLength(Math.Max(PreviewColumn.MinWidth, previewWidth.Value));
+        }
+    }
+
+    private void MainLayoutSplitter_DragCompleted(object sender, DragCompletedEventArgs e)
+    {
+        SaveMainLayoutToConfig();
+    }
+
+    private void SaveMainLayoutToConfig()
+    {
+        if (!IsLoaded)
+        {
+            return;
+        }
+
+        var folderWidth = FolderColumn.ActualWidth;
+        var previewWidth = PreviewColumn.ActualWidth;
+
+        FolderColumn.Width = new GridLength(Math.Max(FolderColumn.MinWidth, folderWidth));
+        PreviewColumn.Width = new GridLength(Math.Max(PreviewColumn.MinWidth, previewWidth));
+        ThumbnailsColumn.Width = new GridLength(1, GridUnitType.Star);
+
+        Config.MainLayoutFolderWidth = FolderColumn.Width.Value;
+        Config.MainLayoutThumbnailsWidth = null;
+        Config.MainLayoutPreviewWidth = PreviewColumn.Width.Value;
     }
 
     private void LoadDriveTree()
@@ -332,6 +383,7 @@ public partial class MainWindow : Window
         var token = cts.Token;
 
         _currentFolder = folder;
+        Config.DefaultOpenFolder = folder;
         if (syncFolderTree)
         {
             SyncFolderTreeSelection(folder);
@@ -629,6 +681,8 @@ public partial class MainWindow : Window
         }
 
         _previewZoomMode = ZoomMode.Custom;
+        Config.PreviewZoomMode = _previewZoomMode;
+        UpdatePreviewScrollBars();
         UpdatePreviewZoomButtons();
         var factor = e.Delta > 0 ? 1.15 : 1 / 1.15;
         ZoomPreviewAt(factor, e.GetPosition(PreviewScroller));
@@ -727,12 +781,14 @@ public partial class MainWindow : Window
     private void SetPreviewZoomMode(ZoomMode mode)
     {
         _previewZoomMode = mode;
+        Config.PreviewZoomMode = mode;
         UpdatePreviewZoomButtons();
         ApplyPreviewZoomMode();
     }
 
     private void ApplyPreviewZoomMode()
     {
+        UpdatePreviewScrollBars();
         UpdatePreviewZoomButtons();
 
         if (PreviewImage.Source is null)
@@ -760,6 +816,16 @@ public partial class MainWindow : Window
     {
         SetZoomModeButtonVisual(FitPreviewButton, _previewZoomMode == ZoomMode.Fit);
         SetZoomModeButtonVisual(ActualSizePreviewButton, _previewZoomMode == ZoomMode.ActualSize);
+    }
+
+    private void UpdatePreviewScrollBars()
+    {
+        var visibility = _previewZoomMode == ZoomMode.Fit
+            ? ScrollBarVisibility.Disabled
+            : ScrollBarVisibility.Auto;
+
+        PreviewScroller.HorizontalScrollBarVisibility = visibility;
+        PreviewScroller.VerticalScrollBarVisibility = visibility;
     }
 
     private static void SetZoomModeButtonVisual(Button button, bool isActive)

@@ -9,7 +9,6 @@ namespace SeaImageViewer;
 public sealed class LocalizationManager : INotifyPropertyChanged
 {
     private const string LanguageFolderName = "Languages";
-    private const string SettingsFileName = "settings.json";
 
     public static LocalizationManager Instance { get; } = new();
 
@@ -102,21 +101,10 @@ public sealed class LocalizationManager : INotifyPropertyChanged
 
     private string SelectInitialCulture()
     {
-        var savedCulture = LoadSelectedCulture();
-        if (!string.IsNullOrWhiteSpace(savedCulture) && FindLanguagePack(savedCulture) is not null)
+        var configuredCulture = AppConfiguration.Instance.Language;
+        if (!string.IsNullOrWhiteSpace(configuredCulture) && FindLanguagePack(configuredCulture) is not null)
         {
-            return savedCulture;
-        }
-
-        var systemCulture = CultureInfo.CurrentUICulture.Name;
-        if (FindLanguagePack(systemCulture) is not null)
-        {
-            return systemCulture;
-        }
-
-        if (_languagePacks.ContainsKey("zh-CN"))
-        {
-            return "zh-CN";
+            return configuredCulture;
         }
 
         if (_languagePacks.ContainsKey("en-US"))
@@ -181,45 +169,9 @@ public sealed class LocalizationManager : INotifyPropertyChanged
         return Directory.Exists(projectDirectory) ? projectDirectory : null;
     }
 
-    private static string? LoadSelectedCulture()
-    {
-        try
-        {
-            var settingsPath = GetSettingsPath();
-            if (!File.Exists(settingsPath))
-            {
-                return null;
-            }
-
-            using var stream = File.OpenRead(settingsPath);
-            return JsonSerializer.Deserialize<AppSettings>(stream)?.Culture;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-        {
-            return null;
-        }
-    }
-
     private static void SaveSelectedCulture(string cultureName)
     {
-        try
-        {
-            var settingsPath = GetSettingsPath();
-            Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);
-
-            using var stream = File.Create(settingsPath);
-            JsonSerializer.Serialize(stream, new AppSettings { Culture = cultureName });
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            // The language switch should still work even if settings cannot be saved.
-        }
-    }
-
-    private static string GetSettingsPath()
-    {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        return Path.Combine(appData, "SeaImageViewer", SettingsFileName);
+        AppConfiguration.Instance.Language = cultureName;
     }
 
     private void OnPropertyChanged(string propertyName)
@@ -235,11 +187,6 @@ public sealed class LocalizationManager : INotifyPropertyChanged
         public string DisplayName { get; init; } = string.Empty;
         public int Order { get; init; } = 100;
         public Dictionary<string, string>? Strings { get; init; }
-    }
-
-    private sealed class AppSettings
-    {
-        public string? Culture { get; init; }
     }
 }
 
