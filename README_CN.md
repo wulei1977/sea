@@ -6,7 +6,7 @@ Sea Image Viewer 是一个使用 C# 和 WPF 开发的本地看图软件，功能
 
 - 浏览磁盘目录并列出当前目录中的图片文件
 - 以缩略图方式展示图片，缩略图加载使用限制并发，默认同时加载 4 张
-- 支持常见图片格式：JPG、JPEG、PNG、BMP、GIF、TIF、TIFF、WEBP、ICO、CUR、JFIF
+- 支持常见图片格式：JPG、JPEG、PNG、BMP、GIF、TIF、TIFF、WEBP、ICO、CUR、JFIF、SVG、SVGZ
 - 右侧预览区支持适应窗口、1:1 显示、鼠标滚轮缩放和拖拽平移
 - 双击缩略图或点击“查看”可打开独立图片查看窗口
 - 查看窗口支持上一张、下一张、全屏、适应、1:1、缩放和平移
@@ -37,6 +37,7 @@ Sea Image Viewer 是一个使用 C# 和 WPF 开发的本地看图软件，功能
 - C#
 - WPF
 - .NET 10 Windows Desktop
+- SharpVectors SVG 渲染
 
 项目目标框架：
 

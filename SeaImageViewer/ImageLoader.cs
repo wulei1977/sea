@@ -2,6 +2,8 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using SharpVectors.Converters;
+using SharpVectors.Renderers.Wpf;
 
 namespace SeaImageViewer;
 
@@ -19,7 +21,9 @@ public static class ImageLoader
         ".webp",
         ".ico",
         ".cur",
-        ".jfif"
+        ".jfif",
+        ".svg",
+        ".svgz"
     };
 
     public static bool IsSupportedImage(string path)
@@ -29,6 +33,15 @@ public static class ImageLoader
 
     public static ImageFileItem CreateThumbnailItem(string path, int decodePixelWidth = 220)
     {
+        if (IsSvgFile(path))
+        {
+            var image = LoadSvgImage(path);
+            var (svgWidth, svgHeight) = GetImageSize(image);
+            var svgFileSize = new FileInfo(path).Length;
+
+            return new ImageFileItem(path, image, svgWidth, svgHeight, svgFileSize);
+        }
+
         var (width, height) = ReadImageSize(path);
         var thumbnail = LoadBitmap(path, decodePixelWidth);
         var fileSize = new FileInfo(path).Length;
@@ -36,11 +49,26 @@ public static class ImageLoader
         return new ImageFileItem(path, thumbnail, width, height, fileSize);
     }
 
-    public static BitmapSource LoadBitmap(string path, int? decodePixelWidth = null)
+    public static ImageSource LoadBitmap(string path, int? decodePixelWidth = null)
     {
-        return IsIconFile(path)
+        return IsSvgFile(path)
+            ? LoadSvgImage(path)
+            : IsIconFile(path)
             ? LoadIconBitmap(path, decodePixelWidth)
             : LoadBitmapImage(path, decodePixelWidth);
+    }
+
+    public static (int Width, int Height) GetImageSize(ImageSource image)
+    {
+        if (image is BitmapSource bitmap)
+        {
+            return (bitmap.PixelWidth, bitmap.PixelHeight);
+        }
+
+        var width = Math.Max(1, (int)Math.Ceiling(image.Width));
+        var height = Math.Max(1, (int)Math.Ceiling(image.Height));
+
+        return (width, height);
     }
 
     public static bool IsRecoverableImageError(Exception ex)
@@ -51,7 +79,8 @@ public static class ImageLoader
             or FileFormatException
             or InvalidOperationException
             or ArgumentException
-            or COMException;
+            or COMException
+            or System.Xml.XmlException;
     }
 
     private static BitmapImage LoadBitmapImage(string path, int? decodePixelWidth)
@@ -92,6 +121,34 @@ public static class ImageLoader
 
         source.Freeze();
         return source;
+    }
+
+    private static DrawingImage LoadSvgImage(string path)
+    {
+        var settings = new WpfDrawingSettings
+        {
+            IncludeRuntime = false,
+            TextAsGeometry = true,
+            OptimizePath = true
+        };
+
+        using var reader = new FileSvgReader(settings, false);
+        var drawing = reader.Read(path);
+
+        if (drawing is null || drawing.Bounds.IsEmpty)
+        {
+            throw new FileFormatException("The SVG contains no drawable content.");
+        }
+
+        if (drawing.CanFreeze)
+        {
+            drawing.Freeze();
+        }
+
+        var image = new DrawingImage(drawing);
+        image.Freeze();
+
+        return image;
     }
 
     public static string FormatFileSize(long bytes)
@@ -146,5 +203,12 @@ public static class ImageLoader
         var extension = Path.GetExtension(path);
         return extension.Equals(".ico", StringComparison.OrdinalIgnoreCase)
             || extension.Equals(".cur", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSvgFile(string path)
+    {
+        var extension = Path.GetExtension(path);
+        return extension.Equals(".svg", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".svgz", StringComparison.OrdinalIgnoreCase);
     }
 }

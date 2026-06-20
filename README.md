@@ -7,7 +7,7 @@ Sea Image Viewer is a local image viewer built with C# and WPF. It provides a li
 - Browse folders and list image files in the selected directory
 - Display images as thumbnails
 - Load thumbnails with limited concurrency, currently 4 images at a time
-- Support common image formats: JPG, JPEG, PNG, BMP, GIF, TIF, TIFF, WEBP, ICO, CUR, and JFIF
+- Support common image formats: JPG, JPEG, PNG, BMP, GIF, TIF, TIFF, WEBP, ICO, CUR, JFIF, SVG, and SVGZ
 - Preview images in the main window
 - Open a dedicated viewer window by double-clicking a thumbnail or clicking the viewer button
 - Fit-to-window, 1:1 display, zoom, and drag-to-pan support
@@ -39,6 +39,7 @@ Sea Image Viewer is a local image viewer built with C# and WPF. It provides a li
 - C#
 - WPF
 - .NET 10 Windows Desktop
+- SharpVectors for SVG rendering
 
 Target framework:
 

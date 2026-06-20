@@ -62,12 +62,13 @@ public partial class ImageViewerWindow : Window
 
         try
         {
-            var bitmap = await Task.Run(() => ImageLoader.LoadBitmap(path), cts.Token);
+            var image = await Task.Run(() => ImageLoader.LoadBitmap(path), cts.Token);
             cts.Token.ThrowIfCancellationRequested();
+            var (imageWidth, imageHeight) = ImageLoader.GetImageSize(image);
 
-            MainImage.Source = bitmap;
-            MainImage.Width = bitmap.PixelWidth;
-            MainImage.Height = bitmap.PixelHeight;
+            MainImage.Source = image;
+            MainImage.Width = imageWidth;
+            MainImage.Height = imageHeight;
             MainImage.Visibility = Visibility.Visible;
             EmptyText.Visibility = Visibility.Collapsed;
 
@@ -353,15 +354,16 @@ public partial class ImageViewerWindow : Window
 
     private void FitImageToViewport()
     {
-        if (MainImage.Source is not BitmapSource bitmap
+        if (MainImage.Source is not ImageSource image
             || ImageScroller.ViewportWidth <= 0
             || ImageScroller.ViewportHeight <= 0)
         {
             return;
         }
 
-        var horizontalScale = ImageScroller.ViewportWidth / bitmap.PixelWidth;
-        var verticalScale = ImageScroller.ViewportHeight / bitmap.PixelHeight;
+        var (imageWidth, imageHeight) = ImageLoader.GetImageSize(image);
+        var horizontalScale = ImageScroller.ViewportWidth / imageWidth;
+        var verticalScale = ImageScroller.ViewportHeight / imageHeight;
         SetZoom(Math.Clamp(Math.Min(horizontalScale, verticalScale), MinZoom, MaxZoom));
         CenterImage();
     }

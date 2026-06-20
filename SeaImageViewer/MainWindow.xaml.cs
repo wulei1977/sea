@@ -177,6 +177,7 @@ public partial class MainWindow : Window
 
         _currentFolder = folder;
         _images.Clear();
+        SearchTextBox.Clear();
         _imageView?.Refresh();
         ClearPreview();
 
@@ -370,12 +371,13 @@ public partial class MainWindow : Window
             SelectedImageText.Text = item.FileName;
             StatusText.Text = $"正在打开 {item.FileName}...";
 
-            var bitmap = await Task.Run(() => ImageLoader.LoadBitmap(item.FilePath), cts.Token);
+            var image = await Task.Run(() => ImageLoader.LoadBitmap(item.FilePath), cts.Token);
             cts.Token.ThrowIfCancellationRequested();
+            var (imageWidth, imageHeight) = ImageLoader.GetImageSize(image);
 
-            PreviewImage.Source = bitmap;
-            PreviewImage.Width = bitmap.PixelWidth;
-            PreviewImage.Height = bitmap.PixelHeight;
+            PreviewImage.Source = image;
+            PreviewImage.Width = imageWidth;
+            PreviewImage.Height = imageHeight;
             PreviewImage.Visibility = Visibility.Visible;
             EmptyPreviewText.Visibility = Visibility.Collapsed;
 
@@ -511,15 +513,16 @@ public partial class MainWindow : Window
 
     private void FitPreviewToViewport()
     {
-        if (PreviewImage.Source is not BitmapSource bitmap
+        if (PreviewImage.Source is not ImageSource image
             || PreviewScroller.ViewportWidth <= 0
             || PreviewScroller.ViewportHeight <= 0)
         {
             return;
         }
 
-        var horizontalScale = PreviewScroller.ViewportWidth / bitmap.PixelWidth;
-        var verticalScale = PreviewScroller.ViewportHeight / bitmap.PixelHeight;
+        var (imageWidth, imageHeight) = ImageLoader.GetImageSize(image);
+        var horizontalScale = PreviewScroller.ViewportWidth / imageWidth;
+        var verticalScale = PreviewScroller.ViewportHeight / imageHeight;
         var scale = Math.Min(horizontalScale, verticalScale);
         SetPreviewZoom(Math.Clamp(scale, MinZoom, MaxZoom));
         CenterPreview();
