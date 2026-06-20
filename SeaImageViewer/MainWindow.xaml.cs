@@ -1,0 +1,620 @@
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.IO;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Threading;
+using WinForms = System.Windows.Forms;
+
+namespace SeaImageViewer;
+
+public partial class MainWindow : Window
+{
+    private const double MinZoom = 0.05;
+    private const double MaxZoom = 20.0;
+    private const int ThumbnailLoadConcurrency = 4;
+    private const string FolderPlaceholder = "Loading";
+
+    private readonly ObservableCollection<ImageFileItem> _images = [];
+    private ICollectionView? _imageView;
+    private CancellationTokenSource? _folderLoadCts;
+    private CancellationTokenSource? _previewLoadCts;
+    private string? _currentFolder;
+    private double _previewZoom = 1.0;
+    private ZoomMode _previewZoomMode = ZoomMode.Fit;
+    private bool _isPanning;
+    private Point _panStart;
+    private Point _panOrigin;
+
+    public MainWindow()
+    {
+        InitializeComponent();
+
+        ThumbnailList.ItemsSource = _images;
+        _imageView = CollectionViewSource.GetDefaultView(_images);
+        _imageView.Filter = FilterImage;
+        UpdatePreviewZoomButtons();
+    }
+
+    private void Window_Loaded(object sender, RoutedEventArgs e)
+    {
+        LoadDriveTree();
+
+        var pictures = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+        if (Directory.Exists(pictures))
+        {
+            LoadFolder(pictures);
+        }
+    }
+
+    private void LoadDriveTree()
+    {
+        FolderTree.Items.Clear();
+
+        foreach (var drive in DriveInfo.GetDrives().Where(drive => drive.IsReady))
+        {
+            FolderTree.Items.Add(CreateFolderTreeItem(drive.Name));
+        }
+    }
+
+    private static TreeViewItem CreateFolderTreeItem(string path)
+    {
+        var item = new TreeViewItem
+        {
+            Header = GetFolderHeader(path),
+            Tag = path
+        };
+
+        if (HasSubdirectories(path))
+        {
+            item.Items.Add(FolderPlaceholder);
+        }
+
+        item.Expanded += FolderTreeItem_Expanded;
+        return item;
+    }
+
+    private static void FolderTreeItem_Expanded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not TreeViewItem item || item.Tag is not string path)
+        {
+            return;
+        }
+
+        if (item.Items.Count != 1 || item.Items[0] is not string placeholder || placeholder != FolderPlaceholder)
+        {
+            return;
+        }
+
+        item.Items.Clear();
+
+        try
+        {
+            foreach (var directory in Directory.EnumerateDirectories(path).OrderBy(GetFolderHeader, StringComparer.CurrentCultureIgnoreCase))
+            {
+                item.Items.Add(CreateFolderTreeItem(directory));
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            item.Items.Add(new TreeViewItem
+            {
+                Header = "无法访问",
+                IsEnabled = false
+            });
+        }
+    }
+
+    private static bool HasSubdirectories(string path)
+    {
+        try
+        {
+            return Directory.EnumerateDirectories(path).Any();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return false;
+        }
+    }
+
+    private static string GetFolderHeader(string path)
+    {
+        var root = Path.GetPathRoot(path);
+        if (string.Equals(root, path, StringComparison.OrdinalIgnoreCase))
+        {
+            return path;
+        }
+
+        return Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+    }
+
+    private void FolderTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
+    {
+        if (e.NewValue is TreeViewItem { Tag: string path } && Directory.Exists(path))
+        {
+            LoadFolder(path);
+        }
+    }
+
+    private void OpenFolder_Click(object sender, RoutedEventArgs e)
+    {
+        using var dialog = new WinForms.FolderBrowserDialog
+        {
+            Description = "选择图片目录",
+            InitialDirectory = Directory.Exists(_currentFolder)
+                ? _currentFolder
+                : Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
+            UseDescriptionForTitle = true,
+            ShowNewFolderButton = false
+        };
+
+        if (dialog.ShowDialog() == WinForms.DialogResult.OK)
+        {
+            LoadFolder(dialog.SelectedPath);
+        }
+    }
+
+    private void Refresh_Click(object sender, RoutedEventArgs e)
+    {
+        if (Directory.Exists(_currentFolder))
+        {
+            LoadFolder(_currentFolder);
+        }
+    }
+
+    private async void LoadFolder(string folder)
+    {
+        _folderLoadCts?.Cancel();
+        _previewLoadCts?.Cancel();
+
+        var cts = new CancellationTokenSource();
+        _folderLoadCts = cts;
+        var token = cts.Token;
+
+        _currentFolder = folder;
+        _images.Clear();
+        _imageView?.Refresh();
+        ClearPreview();
+
+        CurrentFolderText.Text = folder;
+        ImageCountText.Text = string.Empty;
+        StatusText.Text = "正在扫描图片...";
+
+        try
+        {
+            var files = await Task.Run(() =>
+            {
+                token.ThrowIfCancellationRequested();
+
+                return Directory
+                    .EnumerateFiles(folder)
+                    .Where(ImageLoader.IsSupportedImage)
+                    .OrderBy(Path.GetFileName, StringComparer.CurrentCultureIgnoreCase)
+                    .ToList();
+            }, token);
+
+            if (files.Count == 0)
+            {
+                StatusText.Text = "当前目录没有可识别的图片";
+                ImageCountText.Text = "0";
+                return;
+            }
+
+            var failed = await LoadThumbnailsAsync(files, token);
+
+            StatusText.Text = failed == 0
+                ? $"完成：{_images.Count} 张图片"
+                : $"完成：{_images.Count} 张图片，跳过 {failed} 个文件";
+            UpdateImageCount();
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer folder selection has taken over.
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            StatusText.Text = $"无法读取目录：{ex.Message}";
+            ImageCountText.Text = "0";
+        }
+    }
+
+    private bool FilterImage(object item)
+    {
+        if (item is not ImageFileItem image)
+        {
+            return false;
+        }
+
+        var filter = SearchTextBox?.Text?.Trim();
+        return string.IsNullOrEmpty(filter)
+            || image.FileName.Contains(filter, StringComparison.CurrentCultureIgnoreCase);
+    }
+
+    private async Task<int> LoadThumbnailsAsync(IReadOnlyList<string> files, CancellationToken token)
+    {
+        var failed = 0;
+        var completed = 0;
+        var nextIndex = 0;
+        var nextDisplayIndex = 0;
+        var pendingResults = new Dictionary<int, ThumbnailLoadResult>();
+        var runningTasks = new List<Task<ThumbnailLoadResult>>(Math.Min(ThumbnailLoadConcurrency, files.Count));
+
+        while (nextIndex < files.Count && runningTasks.Count < ThumbnailLoadConcurrency)
+        {
+            runningTasks.Add(StartThumbnailLoad(nextIndex, files[nextIndex], token));
+            nextIndex++;
+        }
+
+        while (runningTasks.Count > 0)
+        {
+            token.ThrowIfCancellationRequested();
+
+            var finishedTask = await Task.WhenAny(runningTasks);
+            runningTasks.Remove(finishedTask);
+
+            var result = await finishedTask;
+            completed++;
+
+            if (result.Item is null)
+            {
+                failed++;
+            }
+
+            pendingResults[result.Index] = result;
+            FlushReadyThumbnails(pendingResults, ref nextDisplayIndex);
+
+            if (nextIndex < files.Count)
+            {
+                runningTasks.Add(StartThumbnailLoad(nextIndex, files[nextIndex], token));
+                nextIndex++;
+            }
+
+            if (completed % 10 == 0 || completed == files.Count)
+            {
+                UpdateImageCount();
+                StatusText.Text = failed == 0
+                    ? $"已加载 {completed} / {files.Count}"
+                    : $"已加载 {completed} / {files.Count}，跳过 {failed} 个文件";
+            }
+        }
+
+        return failed;
+    }
+
+    private static Task<ThumbnailLoadResult> StartThumbnailLoad(int index, string file, CancellationToken token)
+    {
+        return Task.Run(() =>
+        {
+            token.ThrowIfCancellationRequested();
+
+            try
+            {
+                return new ThumbnailLoadResult(index, ImageLoader.CreateThumbnailItem(file));
+            }
+            catch (Exception ex) when (ImageLoader.IsRecoverableImageError(ex))
+            {
+                return new ThumbnailLoadResult(index, null);
+            }
+        }, token);
+    }
+
+    private void FlushReadyThumbnails(Dictionary<int, ThumbnailLoadResult> pendingResults, ref int nextDisplayIndex)
+    {
+        while (pendingResults.Remove(nextDisplayIndex, out var result))
+        {
+            if (result.Item is not null)
+            {
+                AddThumbnailItem(result.Item);
+            }
+
+            nextDisplayIndex++;
+        }
+    }
+
+    private void AddThumbnailItem(ImageFileItem item)
+    {
+        _images.Add(item);
+
+        if (ThumbnailList.SelectedItem is null && FilterImage(item))
+        {
+            ThumbnailList.SelectedItem = item;
+            ThumbnailList.ScrollIntoView(item);
+        }
+    }
+
+    private readonly record struct ThumbnailLoadResult(int Index, ImageFileItem? Item);
+
+    private void SearchTextBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        _imageView?.Refresh();
+        UpdateImageCount();
+
+        if (ThumbnailList.SelectedItem is ImageFileItem selected && !FilterImage(selected))
+        {
+            ThumbnailList.SelectedItem = null;
+        }
+    }
+
+    private void UpdateImageCount()
+    {
+        var visibleCount = _imageView?.Cast<object>().Count() ?? _images.Count;
+        ImageCountText.Text = visibleCount == _images.Count
+            ? _images.Count.ToString()
+            : $"{visibleCount} / {_images.Count}";
+    }
+
+    private async void ThumbnailList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ThumbnailList.SelectedItem is ImageFileItem item)
+        {
+            await LoadPreviewAsync(item);
+        }
+        else
+        {
+            ClearPreview();
+        }
+    }
+
+    private async Task LoadPreviewAsync(ImageFileItem item)
+    {
+        _previewLoadCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _previewLoadCts = cts;
+
+        try
+        {
+            SelectedImageText.Text = item.FileName;
+            StatusText.Text = $"正在打开 {item.FileName}...";
+
+            var bitmap = await Task.Run(() => ImageLoader.LoadBitmap(item.FilePath), cts.Token);
+            cts.Token.ThrowIfCancellationRequested();
+
+            PreviewImage.Source = bitmap;
+            PreviewImage.Width = bitmap.PixelWidth;
+            PreviewImage.Height = bitmap.PixelHeight;
+            PreviewImage.Visibility = Visibility.Visible;
+            EmptyPreviewText.Visibility = Visibility.Collapsed;
+
+            ApplyPreviewZoomMode();
+            StatusText.Text = $"{item.FileName}  {item.PixelWidth} x {item.PixelHeight}  {ImageLoader.FormatFileSize(item.FileSize)}";
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex) when (ImageLoader.IsRecoverableImageError(ex))
+        {
+            ClearPreview();
+            SelectedImageText.Text = item.FileName;
+            StatusText.Text = $"无法打开图片：{ex.Message}";
+        }
+    }
+
+    private void ClearPreview()
+    {
+        PreviewImage.Source = null;
+        PreviewImage.Width = double.NaN;
+        PreviewImage.Height = double.NaN;
+        PreviewImage.Visibility = Visibility.Collapsed;
+        EmptyPreviewText.Visibility = Visibility.Visible;
+        SelectedImageText.Text = "预览";
+        PreviewScaleTransform.ScaleX = 1.0;
+        PreviewScaleTransform.ScaleY = 1.0;
+        ZoomText.Text = "-";
+        UpdatePreviewZoomButtons();
+    }
+
+    private void OpenViewer_Click(object sender, RoutedEventArgs e)
+    {
+        OpenSelectedImageViewer();
+    }
+
+    private void ThumbnailList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        OpenSelectedImageViewer();
+    }
+
+    private void OpenSelectedImageViewer()
+    {
+        if (ThumbnailList.SelectedItem is not ImageFileItem selected)
+        {
+            return;
+        }
+
+        var images = ThumbnailList.Items.Cast<ImageFileItem>().ToList();
+        var selectedIndex = Math.Max(0, images.IndexOf(selected));
+        var viewer = new ImageViewerWindow(images.Select(image => image.FilePath).ToList(), selectedIndex)
+        {
+            Owner = this
+        };
+
+        viewer.Show();
+    }
+
+    private void FitPreview_Click(object sender, RoutedEventArgs e)
+    {
+        SetPreviewZoomMode(ZoomMode.Fit);
+    }
+
+    private void ActualSizePreview_Click(object sender, RoutedEventArgs e)
+    {
+        SetPreviewZoomMode(ZoomMode.ActualSize);
+    }
+
+    private void PreviewScroller_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (_previewZoomMode == ZoomMode.Fit)
+        {
+            FitPreviewToViewport();
+        }
+    }
+
+    private void PreviewScroller_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (PreviewImage.Source is null)
+        {
+            return;
+        }
+
+        _previewZoomMode = ZoomMode.Custom;
+        UpdatePreviewZoomButtons();
+        var factor = e.Delta > 0 ? 1.15 : 1 / 1.15;
+        ZoomPreviewAt(factor, e.GetPosition(PreviewScroller));
+        e.Handled = true;
+    }
+
+    private void PreviewScroller_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (PreviewImage.Source is null)
+        {
+            return;
+        }
+
+        _isPanning = true;
+        _panStart = e.GetPosition(PreviewScroller);
+        _panOrigin = new Point(PreviewScroller.HorizontalOffset, PreviewScroller.VerticalOffset);
+        PreviewScroller.CaptureMouse();
+        PreviewScroller.Cursor = Cursors.SizeAll;
+    }
+
+    private void PreviewScroller_PreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_isPanning)
+        {
+            return;
+        }
+
+        var current = e.GetPosition(PreviewScroller);
+        PreviewScroller.ScrollToHorizontalOffset(_panOrigin.X - (current.X - _panStart.X));
+        PreviewScroller.ScrollToVerticalOffset(_panOrigin.Y - (current.Y - _panStart.Y));
+    }
+
+    private void PreviewScroller_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        StopPreviewPan();
+    }
+
+    private void StopPreviewPan()
+    {
+        if (!_isPanning)
+        {
+            return;
+        }
+
+        _isPanning = false;
+        PreviewScroller.ReleaseMouseCapture();
+        PreviewScroller.Cursor = Cursors.Arrow;
+    }
+
+    private void FitPreviewToViewport()
+    {
+        if (PreviewImage.Source is not BitmapSource bitmap
+            || PreviewScroller.ViewportWidth <= 0
+            || PreviewScroller.ViewportHeight <= 0)
+        {
+            return;
+        }
+
+        var horizontalScale = PreviewScroller.ViewportWidth / bitmap.PixelWidth;
+        var verticalScale = PreviewScroller.ViewportHeight / bitmap.PixelHeight;
+        var scale = Math.Min(horizontalScale, verticalScale);
+        SetPreviewZoom(Math.Clamp(scale, MinZoom, MaxZoom));
+        CenterPreview();
+    }
+
+    private void ZoomPreviewAt(double factor, Point cursorPosition)
+    {
+        var oldZoom = _previewZoom;
+        var newZoom = Math.Clamp(oldZoom * factor, MinZoom, MaxZoom);
+        if (Math.Abs(newZoom - oldZoom) < 0.0001)
+        {
+            return;
+        }
+
+        var nextHorizontalOffset = (PreviewScroller.HorizontalOffset + cursorPosition.X) * (newZoom / oldZoom) - cursorPosition.X;
+        var nextVerticalOffset = (PreviewScroller.VerticalOffset + cursorPosition.Y) * (newZoom / oldZoom) - cursorPosition.Y;
+
+        SetPreviewZoom(newZoom);
+
+        Dispatcher.BeginInvoke(() =>
+        {
+            PreviewScroller.ScrollToHorizontalOffset(nextHorizontalOffset);
+            PreviewScroller.ScrollToVerticalOffset(nextVerticalOffset);
+        }, DispatcherPriority.Loaded);
+    }
+
+    private void SetPreviewZoom(double zoom)
+    {
+        _previewZoom = zoom;
+        PreviewScaleTransform.ScaleX = zoom;
+        PreviewScaleTransform.ScaleY = zoom;
+        ZoomText.Text = $"{zoom:P0}";
+    }
+
+    private void SetPreviewZoomMode(ZoomMode mode)
+    {
+        _previewZoomMode = mode;
+        UpdatePreviewZoomButtons();
+        ApplyPreviewZoomMode();
+    }
+
+    private void ApplyPreviewZoomMode()
+    {
+        UpdatePreviewZoomButtons();
+
+        if (PreviewImage.Source is null)
+        {
+            return;
+        }
+
+        switch (_previewZoomMode)
+        {
+            case ZoomMode.Fit:
+                FitPreviewToViewport();
+                break;
+            case ZoomMode.ActualSize:
+                SetPreviewZoom(1.0);
+                CenterPreview();
+                break;
+            case ZoomMode.Custom:
+                SetPreviewZoom(_previewZoom);
+                CenterPreview();
+                break;
+        }
+    }
+
+    private void UpdatePreviewZoomButtons()
+    {
+        SetZoomModeButtonVisual(FitPreviewButton, _previewZoomMode == ZoomMode.Fit);
+        SetZoomModeButtonVisual(ActualSizePreviewButton, _previewZoomMode == ZoomMode.ActualSize);
+    }
+
+    private static void SetZoomModeButtonVisual(Button button, bool isActive)
+    {
+        button.Background = isActive ? CreateBrush(0xEA, 0xF2, 0xFF) : CreateBrush(0xF8, 0xFA, 0xFC);
+        button.BorderBrush = isActive ? CreateBrush(0x25, 0x63, 0xEB) : CreateBrush(0xC9, 0xD2, 0xDE);
+        button.Foreground = isActive ? CreateBrush(0x1D, 0x4E, 0xD8) : CreateBrush(0x1F, 0x29, 0x37);
+        button.FontWeight = isActive ? FontWeights.SemiBold : FontWeights.Normal;
+    }
+
+    private static SolidColorBrush CreateBrush(byte red, byte green, byte blue)
+    {
+        var brush = new SolidColorBrush(Color.FromRgb(red, green, blue));
+        brush.Freeze();
+        return brush;
+    }
+
+    private void CenterPreview()
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            var horizontalOffset = Math.Max(0, (PreviewScroller.ExtentWidth - PreviewScroller.ViewportWidth) / 2);
+            var verticalOffset = Math.Max(0, (PreviewScroller.ExtentHeight - PreviewScroller.ViewportHeight) / 2);
+            PreviewScroller.ScrollToHorizontalOffset(horizontalOffset);
+            PreviewScroller.ScrollToVerticalOffset(verticalOffset);
+        }, DispatcherPriority.Loaded);
+    }
+}
