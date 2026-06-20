@@ -28,6 +28,8 @@ public partial class ImageViewerWindow : Window
     private bool _windowedTopmost;
     private Visibility _windowedToolbarVisibility;
 
+    private static LocalizationManager Texts => LocalizationManager.Instance;
+
     public ImageViewerWindow(IReadOnlyList<string> imagePaths, int selectedIndex)
     {
         InitializeComponent();
@@ -35,6 +37,7 @@ public partial class ImageViewerWindow : Window
         _imageAnimationPlayer = new AnimatedImagePlayer(MainImage);
         _imagePaths = imagePaths;
         _index = Math.Clamp(selectedIndex, 0, Math.Max(0, imagePaths.Count - 1));
+        Texts.LanguageChanged += Localization_LanguageChanged;
         UpdateZoomModeButtons();
         UpdateFullScreenMenuText();
     }
@@ -43,7 +46,22 @@ public partial class ImageViewerWindow : Window
     {
         _loadCts?.Cancel();
         _imageAnimationPlayer.Stop();
+        Texts.LanguageChanged -= Localization_LanguageChanged;
         base.OnClosed(e);
+    }
+
+    private void Localization_LanguageChanged(object? sender, EventArgs e)
+    {
+        UpdateWindowTitle();
+        UpdateFullScreenMenuText();
+        UpdateStateText();
+
+        if (MainImage.Source is null)
+        {
+            EmptyText.Text = _imagePaths.Count == 0
+                ? Texts["Viewer.NoImages"]
+                : Texts["Viewer.Loading"];
+        }
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -55,7 +73,8 @@ public partial class ImageViewerWindow : Window
     {
         if (_imagePaths.Count == 0)
         {
-            EmptyText.Text = "没有图片";
+            EmptyText.Text = Texts["Viewer.NoImages"];
+            UpdateWindowTitle();
             return;
         }
 
@@ -68,7 +87,7 @@ public partial class ImageViewerWindow : Window
         FileNameText.Text = Path.GetFileName(path);
         ViewerStateText.Text = $"{_index + 1} / {_imagePaths.Count}";
         EmptyText.Visibility = Visibility.Visible;
-        EmptyText.Text = "正在加载";
+        EmptyText.Text = Texts["Viewer.Loading"];
 
         try
         {
@@ -86,7 +105,7 @@ public partial class ImageViewerWindow : Window
                 _imageAnimationPlayer.Start(image.Animation);
             }
 
-            Title = $"{Path.GetFileName(path)} - 查看图片";
+            UpdateWindowTitle();
             ApplyZoomMode();
             UpdateStateText();
         }
@@ -98,7 +117,7 @@ public partial class ImageViewerWindow : Window
             _imageAnimationPlayer.Stop();
             MainImage.Source = null;
             MainImage.Visibility = Visibility.Collapsed;
-            EmptyText.Text = $"无法打开图片：{ex.Message}";
+            EmptyText.Text = Texts.Format("Viewer.CannotOpenImage", ex.Message);
             EmptyText.Visibility = Visibility.Visible;
             UpdateStateText();
         }
@@ -190,7 +209,9 @@ public partial class ImageViewerWindow : Window
 
     private void UpdateFullScreenMenuText()
     {
-        FullScreenMenuItem.Header = _isFullScreen ? "切换窗口" : "切换全屏";
+        FullScreenMenuItem.Header = _isFullScreen
+            ? Texts["Viewer.ToggleWindow"]
+            : Texts["Viewer.ToggleFullScreen"];
     }
 
     private void ZoomOut_Click(object sender, RoutedEventArgs e)
@@ -493,6 +514,13 @@ public partial class ImageViewerWindow : Window
     {
         ViewerStateText.Text = _imagePaths.Count == 0
             ? "-"
-            : $"{_index + 1} / {_imagePaths.Count}    {_zoom:P0}";
+            : Texts.Format("Viewer.StateWithZoom", _index + 1, _imagePaths.Count, _zoom);
+    }
+
+    private void UpdateWindowTitle()
+    {
+        Title = _imagePaths.Count == 0
+            ? Texts["Viewer.Title"]
+            : Texts.Format("Viewer.TitleWithFile", Path.GetFileName(_imagePaths[_index]));
     }
 }

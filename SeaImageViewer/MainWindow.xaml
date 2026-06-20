@@ -75,6 +75,125 @@
             </Setter>
         </Style>
 
+        <Style x:Key="ToolbarComboBoxStyle" TargetType="ComboBox">
+            <Setter Property="Height" Value="34" />
+            <Setter Property="Padding" Value="10,0,28,0" />
+            <Setter Property="BorderBrush" Value="#CBD5E1" />
+            <Setter Property="Background" Value="#F8FAFC" />
+            <Setter Property="Foreground" Value="#243044" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="MaxDropDownHeight" Value="260" />
+            <Setter Property="ItemContainerStyle">
+                <Setter.Value>
+                    <Style TargetType="ComboBoxItem">
+                        <Setter Property="Padding" Value="10,6" />
+                        <Setter Property="Foreground" Value="#243044" />
+                        <Setter Property="Background" Value="#FFFFFF" />
+                        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ComboBoxItem">
+                                    <Border x:Name="ItemChrome"
+                                            Background="{TemplateBinding Background}"
+                                            CornerRadius="4"
+                                            Padding="{TemplateBinding Padding}">
+                                        <ContentPresenter />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsHighlighted" Value="True">
+                                            <Setter TargetName="ItemChrome" Property="Background" Value="#EFF6FF" />
+                                        </Trigger>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="ItemChrome" Property="Background" Value="#DBEAFE" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <Border x:Name="Chrome"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="6">
+                                <Grid>
+                                    <ContentPresenter x:Name="ContentSite"
+                                                      Margin="{TemplateBinding Padding}"
+                                                      HorizontalAlignment="Left"
+                                                      VerticalAlignment="Center"
+                                                      Content="{Binding [Main.Language], Source={x:Static local:LocalizationManager.Instance}}"
+                                                      IsHitTestVisible="False" />
+                                    <Path Data="M 0 0 L 4 4 L 8 0 Z"
+                                          Fill="#64748B"
+                                          Width="8"
+                                          Height="4"
+                                          Stretch="Fill"
+                                          HorizontalAlignment="Right"
+                                          VerticalAlignment="Center"
+                                          Margin="0,0,11,0"
+                                          IsHitTestVisible="False" />
+                                    <ToggleButton Focusable="False"
+                                                  Background="Transparent"
+                                                  BorderThickness="0"
+                                                  ClickMode="Press"
+                                                  IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                                        <ToggleButton.Template>
+                                            <ControlTemplate TargetType="ToggleButton">
+                                                <Border Background="Transparent" />
+                                            </ControlTemplate>
+                                        </ToggleButton.Template>
+                                    </ToggleButton>
+                                </Grid>
+                            </Border>
+                            <Popup x:Name="PART_Popup"
+                                   AllowsTransparency="True"
+                                   Focusable="False"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   Placement="Bottom"
+                                   PopupAnimation="Fade">
+                                <Border MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                        Margin="0,4,0,0"
+                                        Background="#FFFFFF"
+                                        BorderBrush="#CBD5E1"
+                                        BorderThickness="1"
+                                        CornerRadius="6">
+                                    <ScrollViewer Padding="4"
+                                                  MaxHeight="{TemplateBinding MaxDropDownHeight}"
+                                                  CanContentScroll="True">
+                                        <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" />
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="#FFFFFF" />
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="#94A3B8" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="#2563EB" />
+                            </Trigger>
+                            <Trigger Property="IsDropDownOpen" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="#FFFFFF" />
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="#2563EB" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Chrome" Property="Opacity" Value="0.55" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style TargetType="TextBox">
             <Setter Property="Height" Value="34" />
             <Setter Property="Padding" Value="12,5,10,5" />
@@ -197,22 +316,31 @@
                             Margin="0,0,10,0"
                             VerticalAlignment="Center" />
                     <Button Style="{StaticResource ToolbarButtonStyle}"
-                            Content="打开目录"
+                            Content="{Binding [Main.OpenFolder], Source={x:Static local:LocalizationManager.Instance}}"
                             Click="OpenFolder_Click" />
                     <Button Style="{StaticResource ToolbarButtonStyle}"
-                            Content="刷新"
+                            Content="{Binding [Main.Refresh], Source={x:Static local:LocalizationManager.Instance}}"
                             Click="Refresh_Click" />
                     <Button Style="{StaticResource ToolbarButtonStyle}"
-                            Content="查看"
+                            Content="{Binding [Main.View], Source={x:Static local:LocalizationManager.Instance}}"
                             Click="OpenViewer_Click" />
                     <Button x:Name="FitPreviewButton"
                             Style="{StaticResource ToolbarButtonStyle}"
-                            Content="适应"
+                            Content="{Binding [Main.Fit], Source={x:Static local:LocalizationManager.Instance}}"
                             Click="FitPreview_Click" />
                     <Button x:Name="ActualSizePreviewButton"
                             Style="{StaticResource ToolbarButtonStyle}"
-                            Content="1:1"
+                            Content="{Binding [Main.ActualSize], Source={x:Static local:LocalizationManager.Instance}}"
                             Click="ActualSizePreview_Click" />
+                    <ComboBox x:Name="LanguageComboBox"
+                              Style="{StaticResource ToolbarComboBoxStyle}"
+                              Width="128"
+                              Margin="4,0,8,0"
+                              ItemsSource="{Binding Languages, Source={x:Static local:LocalizationManager.Instance}}"
+                              DisplayMemberPath="DisplayName"
+                              SelectedValuePath="CultureName"
+                              ToolTip="{Binding [Main.Language], Source={x:Static local:LocalizationManager.Instance}}"
+                              SelectionChanged="LanguageComboBox_SelectionChanged" />
                 </StackPanel>
 
                 <TextBlock x:Name="CurrentFolderText"
@@ -224,7 +352,7 @@
 
                 <TextBox x:Name="SearchTextBox"
                          Grid.Column="2"
-                         ToolTip="按文件名筛选"
+                         ToolTip="{Binding [Main.SearchTooltip], Source={x:Static local:LocalizationManager.Instance}}"
                          TextChanged="SearchTextBox_TextChanged" />
             </Grid>
         </Border>
@@ -235,7 +363,8 @@
                    BorderThickness="0,1,0,0"
                    Foreground="{StaticResource MutedTextBrush}">
             <StatusBarItem>
-                <TextBlock x:Name="StatusText" Text="就绪" />
+                <TextBlock x:Name="StatusText"
+                           Text="{Binding [Main.Ready], Source={x:Static local:LocalizationManager.Instance}}" />
             </StatusBarItem>
             <Separator />
             <StatusBarItem HorizontalContentAlignment="Right">
@@ -260,7 +389,7 @@
                     Effect="{StaticResource PanelShadow}">
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Top"
-                               Text="目录"
+                               Text="{Binding [Main.FolderSection], Source={x:Static local:LocalizationManager.Instance}}"
                                FontWeight="SemiBold"
                                Margin="12,10,12,8" />
                     <TreeView x:Name="FolderTree"
@@ -286,7 +415,8 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="缩略图" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding [Main.ThumbnailsSection], Source={x:Static local:LocalizationManager.Instance}}"
+                                   FontWeight="SemiBold" />
                         <TextBlock x:Name="ImageCountText"
                                    Grid.Column="1"
                                    Foreground="{StaticResource MutedTextBrush}" />
@@ -361,7 +491,7 @@
                             BorderThickness="0,0,0,1"
                             Padding="12,8">
                         <TextBlock x:Name="SelectedImageText"
-                                   Text="预览"
+                                   Text="{Binding [Main.Preview], Source={x:Static local:LocalizationManager.Instance}}"
                                    Foreground="#F8FAFC"
                                    FontWeight="SemiBold"
                                    TextTrimming="CharacterEllipsis" />
@@ -369,7 +499,7 @@
 
                     <Grid Background="#0B0F14">
                         <TextBlock x:Name="EmptyPreviewText"
-                                   Text="选择图片"
+                                   Text="{Binding [Main.SelectImage], Source={x:Static local:LocalizationManager.Instance}}"
                                    Foreground="#AAB4C2"
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center" />

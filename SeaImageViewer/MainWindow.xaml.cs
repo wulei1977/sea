@@ -31,12 +31,17 @@ public partial class MainWindow : Window
     private Point _panStart;
     private Point _panOrigin;
     private bool _isSyncingFolderTreeSelection;
+    private bool _isUpdatingLanguageSelection;
+
+    private static LocalizationManager Texts => LocalizationManager.Instance;
 
     public MainWindow()
     {
         InitializeComponent();
 
         _previewAnimationPlayer = new AnimatedImagePlayer(PreviewImage);
+        Texts.LanguageChanged += Localization_LanguageChanged;
+        InitializeLanguageSelector();
         ThumbnailList.ItemsSource = _images;
         _imageView = CollectionViewSource.GetDefaultView(_images);
         _imageView.Filter = FilterImage;
@@ -48,7 +53,41 @@ public partial class MainWindow : Window
         _folderLoadCts?.Cancel();
         _previewLoadCts?.Cancel();
         _previewAnimationPlayer.Stop();
+        Texts.LanguageChanged -= Localization_LanguageChanged;
         base.OnClosed(e);
+    }
+
+    private void InitializeLanguageSelector()
+    {
+        _isUpdatingLanguageSelection = true;
+        try
+        {
+            LanguageComboBox.SelectedValue = Texts.CurrentLanguage?.CultureName;
+        }
+        finally
+        {
+            _isUpdatingLanguageSelection = false;
+        }
+    }
+
+    private void Localization_LanguageChanged(object? sender, EventArgs e)
+    {
+        InitializeLanguageSelector();
+
+        if (PreviewImage.Source is null)
+        {
+            SelectedImageText.Text = Texts["Main.Preview"];
+        }
+    }
+
+    private void LanguageComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isUpdatingLanguageSelection || LanguageComboBox.SelectedValue is not string cultureName)
+        {
+            return;
+        }
+
+        Texts.SetLanguage(cultureName);
     }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -124,7 +163,7 @@ public partial class MainWindow : Window
         {
             item.Items.Add(new TreeViewItem
             {
-                Header = "无法访问",
+                Header = Texts["Main.Inaccessible"],
                 IsEnabled = false
             });
         }
@@ -261,7 +300,7 @@ public partial class MainWindow : Window
     {
         using var dialog = new WinForms.FolderBrowserDialog
         {
-            Description = "选择图片目录",
+            Description = Texts["Main.FolderDialogDescription"],
             InitialDirectory = Directory.Exists(_currentFolder)
                 ? _currentFolder
                 : Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
@@ -305,7 +344,7 @@ public partial class MainWindow : Window
 
         CurrentFolderText.Text = folder;
         ImageCountText.Text = string.Empty;
-        StatusText.Text = "正在扫描图片...";
+        StatusText.Text = Texts["Main.ScanningImages"];
 
         try
         {
@@ -322,7 +361,7 @@ public partial class MainWindow : Window
 
             if (files.Count == 0)
             {
-                StatusText.Text = "当前目录没有可识别的图片";
+                StatusText.Text = Texts["Main.NoRecognizedImages"];
                 ImageCountText.Text = "0";
                 return;
             }
@@ -330,8 +369,8 @@ public partial class MainWindow : Window
             var failed = await LoadThumbnailsAsync(files, token);
 
             StatusText.Text = failed == 0
-                ? $"完成：{_images.Count} 张图片"
-                : $"完成：{_images.Count} 张图片，跳过 {failed} 个文件";
+                ? Texts.Format("Main.CompleteImages", _images.Count)
+                : Texts.Format("Main.CompleteImagesWithSkipped", _images.Count, failed);
             UpdateImageCount();
         }
         catch (OperationCanceledException)
@@ -340,7 +379,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
-            StatusText.Text = $"无法读取目录：{ex.Message}";
+            StatusText.Text = Texts.Format("Main.CannotReadFolder", ex.Message);
             ImageCountText.Text = "0";
         }
     }
@@ -400,8 +439,8 @@ public partial class MainWindow : Window
             {
                 UpdateImageCount();
                 StatusText.Text = failed == 0
-                    ? $"已加载 {completed} / {files.Count}"
-                    : $"已加载 {completed} / {files.Count}，跳过 {failed} 个文件";
+                    ? Texts.Format("Main.LoadedProgress", completed, files.Count)
+                    : Texts.Format("Main.LoadedProgressWithSkipped", completed, files.Count, failed);
             }
         }
 
@@ -492,7 +531,7 @@ public partial class MainWindow : Window
         try
         {
             SelectedImageText.Text = item.FileName;
-            StatusText.Text = $"正在打开 {item.FileName}...";
+            StatusText.Text = Texts.Format("Main.OpeningFile", item.FileName);
 
             var image = await Task.Run(() => ImageLoader.LoadDisplayImage(item.FilePath), cts.Token);
             cts.Token.ThrowIfCancellationRequested();
@@ -518,7 +557,7 @@ public partial class MainWindow : Window
         {
             ClearPreview();
             SelectedImageText.Text = item.FileName;
-            StatusText.Text = $"无法打开图片：{ex.Message}";
+            StatusText.Text = Texts.Format("Main.CannotOpenImage", ex.Message);
         }
     }
 
@@ -530,7 +569,7 @@ public partial class MainWindow : Window
         PreviewImage.Height = double.NaN;
         PreviewImage.Visibility = Visibility.Collapsed;
         EmptyPreviewText.Visibility = Visibility.Visible;
-        SelectedImageText.Text = "预览";
+        SelectedImageText.Text = Texts["Main.Preview"];
         PreviewScaleTransform.ScaleX = 1.0;
         PreviewScaleTransform.ScaleY = 1.0;
         ZoomText.Text = "-";
